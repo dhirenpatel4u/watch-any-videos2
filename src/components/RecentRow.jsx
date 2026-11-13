@@ -1,0 +1,125 @@
+import { Link } from "react-router-dom";
+import { Play, X } from "lucide-react";
+import { useState } from "react";
+
+const FALLBACK_IMAGE =
+  "/fallback-video.png";
+
+export default function RecentRow({
+  videos,
+  onClear,
+}) {
+  const [hidden, setHidden] =
+    useState(false);
+
+  if (!videos.length || hidden) {
+    return null;
+  }
+
+  const handleImageError = (e) => {
+    // Prevent infinite error loop
+    if (
+      e.currentTarget.src.includes(
+        FALLBACK_IMAGE
+      )
+    ) {
+      return;
+    }
+
+    e.currentTarget.src =
+      FALLBACK_IMAGE;
+  };
+
+  return (
+    <section
+      className="section"
+      id="recent"
+    >
+      <div className="section-heading">
+        <h2>Recently Watched</h2>
+
+        <button
+          className="clear-btn"
+          onClick={() => {
+            localStorage.removeItem(
+              "wav_recent_v1"
+            );
+
+            setHidden(true);
+
+            onClear?.();
+          }}
+        >
+          <X size={14} />
+          Clear
+        </button>
+      </div>
+
+      <div className="horizontal-row">
+        {videos.map((video) => {
+          const isLive =
+            video.type === "live";
+
+          const image =
+            video.image ||
+            FALLBACK_IMAGE;
+
+          /*
+           * Normal:
+           * /watch/:id
+           *
+           * Live:
+           * /watch/live/:username
+           */
+          const link = isLive
+            ? `/watch/live/${encodeURIComponent(
+                video.title
+              )}`
+            : `/watch/${video.id}`;
+
+          return (
+            <Link
+              to={link}
+              className="recent-card"
+              key={`${video.type || "normal"}-${video.id}`}
+            >
+              <div className="recent-poster">
+
+                <img
+                  src={image}
+                  alt=""
+                  loading="lazy"
+                  onError={
+                    handleImageError
+                  }
+                />
+
+                {/* NORMAL VIDEO → PLAY BADGE */}
+                {!isLive && (
+                  <span>
+                    <Play
+                      size={16}
+                      fill="currentColor"
+                    />
+                  </span>
+                )}
+
+                {/* LIVE VIDEO → LIVE BADGE ONLY */}
+                {isLive && (
+                  <strong className="live-badge">
+                    LIVE
+                  </strong>
+                )}
+
+              </div>
+
+              <div>
+                {video.title}
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </section>
+  );
+}

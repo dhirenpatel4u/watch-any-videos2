@@ -1,0 +1,447 @@
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
+import videosData from "../data/videos.json";
+
+import Hero from "../components/Hero";
+import RecentRow from "../components/RecentRow";
+import VideoRow from "../components/VideoRow";
+import VideoCard from "../components/VideoCard";
+import Live from "../components/Live";
+
+import {
+  getStoredVideos,
+  getTrending,
+  getRecent,
+} from "../utils/videos";
+
+const PAGE_SIZE = 50;
+
+const SEARCH_KEY =
+  "watch_any_video_search";
+
+const HOME_SCROLL_KEY =
+  "watch_any_video_home_scroll";
+
+const HOME_VISIBLE_KEY =
+  "watch_any_video_home_visible";
+
+export default function Home() {
+  const [allVideos] = useState(() =>
+    getStoredVideos(videosData)
+  );
+
+  const [visible, setVisible] =
+    useState(() => {
+      try {
+        const saved =
+          sessionStorage.getItem(
+            HOME_VISIBLE_KEY
+          );
+
+        if (saved !== null) {
+          const value = Number(saved);
+
+          if (
+            Number.isFinite(value) &&
+            value >= PAGE_SIZE
+          ) {
+            return Math.min(
+              value,
+              allVideos.length
+            );
+          }
+        }
+      } catch {
+        // Ignore storage errors
+      }
+
+      return PAGE_SIZE;
+    });
+
+  const [search, setSearch] = useState(() => {
+    try {
+      return (
+        sessionStorage.getItem(
+          SEARCH_KEY
+        ) || ""
+      );
+    } catch {
+      return "";
+    }
+  });
+
+  const [recent, setRecent] =
+    useState(getRecent());
+
+  /*
+   * Save how many videos are currently visible.
+   */
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(
+        HOME_VISIBLE_KEY,
+        String(visible)
+      );
+    } catch {
+      // Ignore storage errors
+    }
+  }, [visible]);
+
+  /*
+   * Restore previous scroll position.
+   */
+  useEffect(() => {
+    let savedPosition = null;
+
+    try {
+      savedPosition =
+        sessionStorage.getItem(
+          HOME_SCROLL_KEY
+        );
+    } catch {
+      savedPosition = null;
+    }
+
+    if (savedPosition === null) {
+      return;
+    }
+
+    const position =
+      Number(savedPosition);
+
+    const restoreScroll = () => {
+      window.scrollTo({
+        top: position,
+        left: 0,
+        behavior: "instant",
+      });
+    };
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          restoreScroll();
+
+          try {
+            sessionStorage.removeItem(
+              HOME_SCROLL_KEY
+            );
+          } catch {
+            // Ignore storage errors
+          }
+        });
+      });
+    });
+  }, []);
+
+  /*
+   * Listen for searches from the header/search component.
+   */
+  useEffect(() => {
+    const handleSearch = (event) => {
+      const value =
+        event.detail || "";
+
+      setSearch(value);
+
+      // Every new search starts with 50 results.
+      setVisible(PAGE_SIZE);
+
+      try {
+        if (value.trim()) {
+          sessionStorage.setItem(
+            SEARCH_KEY,
+            value
+          );
+        } else {
+          sessionStorage.removeItem(
+            SEARCH_KEY
+          );
+        }
+      } catch {
+        // Ignore storage errors
+      }
+
+      window.scrollTo({
+        top: 0,
+        left: 0,
+        behavior: "smooth",
+      });
+    };
+
+    window.addEventListener(
+      "video-search",
+      handleSearch
+    );
+
+    return () => {
+      window.removeEventListener(
+        "video-search",
+        handleSearch
+      );
+    };
+  }, []);
+
+  /*
+   * Restore saved search.
+   */
+  useEffect(() => {
+    try {
+      const savedSearch =
+        sessionStorage.getItem(
+          SEARCH_KEY
+        ) || "";
+
+      if (savedSearch) {
+        setSearch(savedSearch);
+        setVisible(PAGE_SIZE);
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }, []);
+
+  /*
+   * Refresh Recently Watched.
+   */
+  useEffect(() => {
+    const refreshRecent = () => {
+      setRecent(getRecent());
+    };
+
+    window.addEventListener(
+      "storage",
+      refreshRecent
+    );
+
+    window.addEventListener(
+      "recent-updated",
+      refreshRecent
+    );
+
+    return () => {
+      window.removeEventListener(
+        "storage",
+        refreshRecent
+      );
+
+      window.removeEventListener(
+        "recent-updated",
+        refreshRecent
+      );
+    };
+  }, []);
+
+  /*
+   * Filter videos based on search query.
+   */
+  const filteredVideos = useMemo(() => {
+    const query = search
+      .trim()
+      .toLowerCase();
+
+    if (!query) {
+      return allVideos;
+    }
+
+    return allVideos.filter(
+      (video) =>
+        video.title
+          .toLowerCase()
+          .includes(query)
+    );
+  }, [
+    allVideos,
+    search,
+  ]);
+
+  /*
+   * Load more videos when the user gets
+   * close to the bottom of the page.
+   *
+   * This works for BOTH:
+   *
+   * Normal page:
+   * 50 → 100 → 150 → 200...
+   *
+   * Search:
+   * 50 → 100 → 150 → 200...
+   */
+  useEffect(() => {
+    const handleScroll = () => {
+      const totalVideos = search
+        ? filteredVideos.length
+        : allVideos.length;
+
+      const nearBottom =
+        window.innerHeight +
+          window.scrollY >=
+        document.documentElement
+          .scrollHeight - 900;
+
+      if (!nearBottom) {
+        return;
+      }
+
+      setVisible((current) => {
+        if (current >= totalVideos) {
+          return current;
+        }
+
+        return Math.min(
+          current + PAGE_SIZE,
+          totalVideos
+        );
+      });
+    };
+
+    window.addEventListener(
+      "scroll",
+      handleScroll,
+      {
+        passive: true,
+      }
+    );
+
+    return () => {
+      window.removeEventListener(
+        "scroll",
+        handleScroll
+      );
+    };
+  }, [
+    search,
+    filteredVideos.length,
+    allVideos.length,
+  ]);
+
+  /*
+   * Trending videos.
+   */
+  const trendingVideos = useMemo(() => {
+    return getTrending(
+      allVideos,
+      12
+    );
+  }, [allVideos]);
+
+  /*
+   * Only render the currently visible batch.
+   *
+   * Example:
+   * Search has 237 matches.
+   *
+   * visible = 50  → show 50
+   * visible = 100 → show 100
+   * visible = 150 → show 150
+   * visible = 200 → show 200
+   * visible = 237 → show 237
+   */
+  const displayedVideos =
+    useMemo(() => {
+      return filteredVideos.slice(
+        0,
+        visible
+      );
+    }, [
+      filteredVideos,
+      visible,
+    ]);
+
+  return (
+    <main>
+      {!search &&
+        allVideos.length > 0 && (
+          <Hero
+            videos={allVideos}
+          />
+        )}
+
+      <div className="page">
+        {!search && (
+          <RecentRow
+            videos={recent}
+            onClear={() => {
+              setRecent([]);
+            }}
+          />
+        )}
+
+        {search ? (
+          <section className="section search-results">
+            <div className="section-heading">
+              <h2>
+                Search results
+              </h2>
+
+              <span>
+                {filteredVideos.length} found
+              </span>
+            </div>
+
+            {filteredVideos.length > 0 ? (
+              <>
+                <div className="video-grid">
+                  {displayedVideos.map(
+                    (video) => (
+                      <VideoCard
+                        key={video.id}
+                        video={video}
+                      />
+                    )
+                  )}
+                </div>
+
+                {visible <
+                  filteredVideos.length && (
+                  <div className="load-hint">
+                    Scroll down to load more
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="empty">
+                No videos found for “
+                {search}
+                ”.
+              </div>
+            )}
+          </section>
+        ) : (
+          <>
+            <VideoRow
+              title="Trending Now"
+              videos={trendingVideos}
+              id="trending"
+            />
+
+            {/* Live section immediately after Trending */}
+            <Live />
+
+            <VideoRow
+              title="All Videos"
+              videos={displayedVideos}
+            />
+
+            {visible <
+              allVideos.length && (
+              <div className="load-hint">
+                Scroll down to load more
+              </div>
+            )}
+
+            {!allVideos.length && (
+              <div className="empty">
+                No videos available.
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </main>
+  );
+}
